@@ -131,7 +131,128 @@ endpoint) while **workflows** stay intent-shaped.
 
 ---
 
-## 6. End-to-end diagrams (textual)
+## 6. Edge runtimes (Cloudflare Workers, Deno Deploy, etc.)
+
+Edge runtimes impose constraints that differ from long-lived Node/Bun processes.
+The core library code does not need to change; you add a **thin worker entry
+point** that adapts to the runtime's execution model.
+
+### Startup CPU budget
+
+Edge runtimes enforce strict startup CPU limits (Cloudflare Workers: ~50 ms
+CPU). Module-level code runs during startup. Generated Zod schemas
+(`zod.gen.ts`) can be thousands of lines of eagerly-evaluated schema
+constructors. Statically importing the library entry (e.g. `*-mcp.ts`)
+transitively imports all tool modules → all SDK functions → all generated Zod
+schemas, blowing the startup budget.
+
+**Fix: deferred module loading.** The worker entry dynamically imports the
+library entry inside the `fetch` handler:
+
+```typescript
+type McpModule = typeof import("./my-mcp.ts");
+let mcpModule: Promise<McpModule> | null = null;
+
+function loadMcp(): Promise<McpModule> {
+  if (!mcpModule) {
+    mcpModule = import("./my-mcp.ts").then((mod) => {
+      mod.configureClient({ apiKey: "" });
+      return mod;
+    });
+  }
+  return mcpModule;
+}
+```
+
+Bundlers (wrangler/esbuild) wrap deferred modules in lazy `__esm` initializers:
+`Promise.resolve().then(() => (init_my_mcp(), my_mcp_exports))`. The heavy Zod
+and tool evaluation runs on first request (which has a generous CPU budget), not
+at startup.
+
+**What stays at module level** (lightweight): credential interceptor
+installation (`enableHttpHeaderCredentialBridge()` or equivalent), base URL
+config for the HTTP client, and the import of the transport class
+(`WebStandardStreamableHTTPServerTransport` — its import chain is minimal).
+
+### Per-request server + transport
+
+Two SDK constraints make this necessary on stateless edge runtimes:
+
+1. **`Protocol.connect(transport)`** throws if the server is already connected
+   to a transport. You cannot reuse a server across requests without calling
+   `close()` first (race condition under concurrency).
+2. **Stateless `WebStandardStreamableHTTPServerTransport`** (no
+   `sessionIdGenerator`) throws if `handleRequest` is called a second time.
+
+The correct pattern: create a **fresh `McpServer` + transport per request**.
+Tool registration is pure in-memory computation (Zod schemas are already parsed
+from the first dynamic import), so overhead is sub-millisecond.
+
+```typescript
+const { createMcpServer } = await loadMcp();
+const server = createMcpServer();
+const transport = new WebStandardStreamableHTTPServerTransport({
+  sessionIdGenerator: undefined,
+});
+await server.connect(transport);
+return transport.handleRequest(request);
+```
+
+### Environment variables and secrets
+
+Edge runtimes pass secrets via the `env` parameter to the `fetch` handler, not
+via `process.env`. If the library uses eager env validation (e.g. `envalid`),
+ensure **all fields have defaults** so the validation pass doesn't crash at
+import time under `nodejs_compat`.
+
+For **multi-tenant** deployments, no secrets are needed on the worker itself —
+each request carries its own credentials in headers (`X-Api-Key`,
+`Authorization: Basic`, etc.), resolved per-request by the existing ALS +
+interceptor infrastructure.
+
+For **single-tenant** deployments, configure the client lazily on first request
+using the worker's `env` binding:
+
+```typescript
+let configured = false;
+// inside fetch():
+if (!configured) {
+  configureClient({ apiKey: env.API_KEY });
+  configured = true;
+}
+```
+
+### Compatibility flags
+
+Cloudflare Workers requires `nodejs_compat` in `wrangler.toml` for:
+
+- `node:crypto` (`randomUUID` used by session ID generators)
+- `node:async_hooks` (`AsyncLocalStorage` used by multi-tenant credential flow)
+- `process.env` (for eager env validation libraries with defaults)
+
+### Global type conflicts
+
+`@cloudflare/workers-types` and `@types/bun` (or `@types/node`) define
+overlapping globals (`Request`, `Response`, etc.). Do not add both to the same
+`tsconfig.json` `types` array. For projects that target multiple runtimes, use
+separate tsconfig files or rely on the bundler's own type resolution.
+
+### Worker entry as a thin adapter
+
+The worker entry (`src/worker.ts` or equivalent) should be a **thin adapter**
+between the edge runtime's `fetch` interface and the existing library. It does
+not contain tool logic, schema definitions, or auth code — those live in the
+shared library entry. The worker only:
+
+1. Installs the credential interceptor (module level, once per isolate)
+2. Lazily imports the library entry on first request
+3. Creates a per-request server + transport
+4. Wraps the transport handler with multi-tenant context (if applicable)
+5. Returns the `Response`
+
+---
+
+## 7. End-to-end diagrams
 
 **stdio + shared credentials:**
 
@@ -140,7 +261,7 @@ CLI → configure*Client → create*McpServer → register*Tools
   → connect(stdio) → tool invoke → sdkFn({ body }) → HTTP client (global auth)
 ```
 
-**HTTP multi-tenant:**
+**HTTP multi-tenant (long-lived process):**
 
 ```
 HTTP Request → wrapMcpHttpHandleRequest
@@ -149,9 +270,21 @@ HTTP Request → wrapMcpHttpHandleRequest
   → interceptor reads ALS + resolver → auth headers per tenant
 ```
 
+**Edge worker (Cloudflare Workers / similar):**
+
+```
+fetch(request) [startup: interceptor only, no heavy imports]
+  → loadMcp() [first request: dynamic import evaluates tools + Zod schemas]
+  → createMcpServer() + new stateless transport [per request]
+  → server.connect(transport)
+  → wrapMcpHttpHandleRequest (multi-tenant ALS + 401 enforcement)
+  → transport.handleRequest → tool invoke → sdkFn({ body })
+  → interceptor reads ALS + resolver → auth headers per tenant
+```
+
 ---
 
-## 7. Adoption checklist (technical)
+## 8. Adoption checklist (technical)
 
 - Replicate **three layers**: generated client + domain atomic modules + public
   library orchestration (`*-mcp.ts` or equivalent).
@@ -162,3 +295,8 @@ HTTP Request → wrapMcpHttpHandleRequest
   coercion.
 - Document **when global auth applies** vs **strict tenant-only** to avoid
   accidental credential leakage between tenants.
+- If targeting an edge runtime: worker entry uses **dynamic `import()`** for the
+  library entry; module-level code is interceptor + base URL only.
+- Edge worker creates **fresh `McpServer` + stateless transport per request**.
+- Ensure `nodejs_compat` (or equivalent) is enabled for `node:crypto` and
+  `node:async_hooks`.

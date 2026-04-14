@@ -86,23 +86,32 @@ Answer these for **any** MCP server so the layout stays appropriate:
    - **Streamable HTTP** only (remote gateway)?
    - **Both** (same tool registration; different `connect` paths)?
 
-3. **Distribution shape**
+3. **Deployment target**
+   - **Long-lived process** (Node / Bun on a VM or container)?
+   - **Edge runtime** (Cloudflare Workers, Deno Deploy, Vercel Edge)?
+   - Edge runtimes impose **startup CPU limits** (e.g. Workers: ~50 ms CPU).
+     Generated Zod schemas (`zod.gen.ts`) can be thousands of lines; static
+     imports cause all schemas to evaluate at startup, exceeding the budget.
+     Plan for **deferred module loading** (see
+     [reference/structure-and-flows.md](reference/structure-and-flows.md)).
+
+4. **Distribution shape**
    - **CLI-only** binary (users run a command)?
    - **Library-only** (embed `create*McpServer` in another app)?
    - **Both** (recommended: `package.json` `exports` + `bin`)?
 
-4. **API surface**
+5. **API surface**
    - Is there a **machine-readable OpenAPI** spec (or can you maintain one)?
    - If not, you can still use the **same folder ideas** (hand-written client +
      Zod), but you lose **one spec as source of truth** for request shapes.
 
-5. **Workflow vs atomic tools**
+6. **Workflow vs atomic tools**
    - Start **1:1 with endpoints** (mcp-builder bias), then add **workflows**
      (mcp-workflow-design). A common split: **atomic** tools under
      `src/tools/<domain>.ts` (or similar) and **composite** tools under
      `src/tools/workflows/`.
 
-6. **Upstream authentication schemes**
+7. **Upstream authentication schemes**
    - Does the API support **HTTP Basic** (including “two-part” secrets encoded as
      `Basic` per vendor docs), **Bearer** (OAuth or PAT), **both**, or other
      schemes (API-key headers, mTLS)?
@@ -126,7 +135,7 @@ interceptor, or both.
 
 ### Scheme families to plan for
 
-**1. HTTP Basic with a derived token (two-part secrets)**  
+**1. HTTP Basic with a derived token (two-part secrets)**
 Some vendors issue an **access key** (or ID) and a **separate secret**. The wire
 format is still RFC 7617 Basic: concatenate with a colon, Base64-encode the
 UTF-8 string, send:
@@ -137,7 +146,7 @@ Operators may create this once in a shell or your CLI reads **two** env vars
 and builds the header at startup. Do not confuse this with “username only”
 Basic (some APIs use empty password).
 
-**2. Bearer token (OAuth or non-OAuth PAT)**  
+**2. Bearer token (OAuth or non-OAuth PAT)**
 After the user or system obtains a token (OAuth flow, developer portal, etc.),
 send:
 
@@ -148,7 +157,7 @@ flow on every tool call. Typical patterns: token in env for stdio; inbound
 `Authorization` forwarded under ALS for HTTP; or a **resolver** that reads a
 refreshed token from a store or sidecar.
 
-**3. APIs that accept Basic *or* Bearer**  
+**3. APIs that accept Basic *or* Bearer**
 The same OpenAPI/SDK can call the same paths; only the **credential shape**
 changes. Implement **one** outbound path (interceptor or default headers) that
 can set either a full `Authorization` string or a small set of variants your
@@ -215,6 +224,7 @@ For interceptor placement and context flow, see
 | **Library-first** | `configure*Client`, `register*Tools`, `create*McpServer`, and HTTP helpers exported from the **library entry**; CLI is a thin argv/env wrapper. |
 | **Generated REST SDK** | Codegen (e.g. `@hey-api/openapi-ts`) → `src/generated/` (`client.gen.ts`, `sdk.gen.ts`, …). **Never hand-edit generated files.** |
 | **Zod for MCP inputs** | Atomic tools: generated `z*Data` (or equivalent); a **registrar** extracts the request `body` shape for MCP `inputSchema`. Workflow tools: hand-written Zod. |
+| **Edge-runtime aware** | Worker entry defers heavy imports (tools, generated Zod/SDK) via dynamic `import()` inside the fetch handler to stay within startup CPU limits. Per-request `McpServer` + stateless transport (SDK's `Protocol.connect()` is one-shot; stateless transport is single-use). Lightweight module-level code only (credential interceptor, base URL config). |
 
 ---
 
@@ -225,6 +235,7 @@ For interceptor placement and context flow, see
 | **Library public API** | e.g. `src/<service>-mcp.ts` — client config, `register*Tools`, server factory, stdio/HTTP wiring, optional re-exports for HTTP/credential helpers. |
 | **Per-request HTTP context** | e.g. `src/request-context.ts` — ALS, credential resolver, header/token bridge, wrapper around the transport’s `handleRequest`. |
 | **CLI / dev entry** | `src/cli.ts`, `src/index.ts` — parse flags and env, configure client, create server, start transport. |
+| **Edge worker entry** | e.g. `src/worker.ts` — Cloudflare Workers / edge runtime `fetch` handler. Dynamic-imports the library entry to defer heavy module evaluation past startup. Creates per-request server + stateless transport. |
 | **Atomic tool registrar** | e.g. `src/tools/register.ts` — `registerAtomicTool`: Zod → MCP `inputSchema`, map params → SDK call shape, map errors → MCP text. |
 | **Domain atomic modules** | e.g. `src/tools/<domain>.ts` — import `sdkFn` + generated schemas, call the atomic registrar. |
 | **Workflow module** | e.g. `src/tools/workflows/` — `registerWorkflowTool` + shared `callSdk` / `callSdkAll`-style helpers. |
@@ -256,6 +267,16 @@ ALS wraps `handleRequest` → on each outbound HTTP request, an interceptor read
 ALS + `credentialResolver` → sets or strips auth headers. Empty context +
 `requireTenantCredentials` → **401 before MCP** (fail closed).
 
+**Edge worker path (Cloudflare Workers / similar):** Module-level code is
+minimal (install credential interceptor, configure base URL). On each request,
+dynamically import the library entry → `create*McpServer()` → new stateless
+`WebStandardStreamableHTTPServerTransport` → `server.connect(transport)` → wrap
+with multi-tenant `handleRequest` → return `Response`. The dynamic `import()` is
+key: bundlers (wrangler/esbuild) wrap deferred modules in lazy `__esm`
+initializers so generated Zod schemas and tool registrations evaluate on first
+request (generous CPU budget) rather than at startup (strict CPU limit). See
+[reference/structure-and-flows.md § Edge runtimes](reference/structure-and-flows.md#6-edge-runtimes-cloudflare-workers-deno-deploy-etc).
+
 ---
 
 ## Workflow with companion skills
@@ -285,3 +306,13 @@ ALS + `credentialResolver` → sets or strips auth headers. Empty context +
       behavior).
 - [ ] Supported auth modes documented (Basic two-part, Bearer, forwarded
       `Authorization`, OAuth expectations) and mapped to env / HTTP / resolver.
+- [ ] If targeting an **edge runtime** (Workers, Deno Deploy): worker entry uses
+      dynamic `import()` for the library entry (tools + generated schemas) to
+      defer heavy evaluation past startup. Module-level code is limited to
+      interceptor setup and base URL config.
+- [ ] Edge worker creates a **fresh `McpServer` + stateless transport per
+      request** (`Protocol.connect()` is one-shot; stateless transport is
+      single-use).
+- [ ] `nodejs_compat` (or equivalent) enabled for `node:crypto` and
+      `node:async_hooks` (AsyncLocalStorage). Eager env readers (like `envalid`)
+      have defaults for all fields so they don't crash at import time.
