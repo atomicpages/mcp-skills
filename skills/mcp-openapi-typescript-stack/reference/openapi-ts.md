@@ -148,8 +148,10 @@ client.setConfig({
   throwOnError: true,
 });
 
-client.interceptors.request.use(async (request) => {
-  // e.g. per-request auth from AsyncLocalStorage
+client.interceptors.request.use(async (request, options) => {
+  // IMPORTANT: modify options.headers, not just the Request — see pitfall below
+  const optsHeaders = options?.headers as Headers | undefined;
+  optsHeaders?.set("Authorization", "Bearer per-request-token");
   return request;
 });
 
@@ -158,6 +160,46 @@ await someOperation({ body: { … } });
 
 SDK calls usually take an object with **`body`**, **`path`**, **`query`**, and
 optionally **`client`** to override the instance.
+
+### PITFALL: interceptor must modify `options.headers`, not just the `Request`
+
+The generated `@hey-api/client-ky` request pipeline works like this:
+
+1. `beforeRequest()` builds `opts` (merging config headers, calling
+   `setAuthParams` to set `Authorization` from `setConfig`)
+2. Creates `kyOptions = { headers: opts.headers, … }` (same `Headers` reference)
+3. Creates a `new Request(url, { headers: kyOptions.headers })`
+4. Runs `client.interceptors.request` — your interceptor receives `(request,
+   opts)`
+5. Calls `kyInstance(request, kyOptions)` — **Ky merges `kyOptions.headers` ON
+   TOP of the Request headers**
+
+If your interceptor only modifies the `Request` object (e.g. creates `new
+Request(request, { headers: newHeaders })`), **Ky overwrites those headers** at
+step 5 with the stale `kyOptions.headers` from step 2. This means per-request
+auth set via the `Request` is silently replaced by the global config auth.
+
+**Correct pattern:** modify `options.headers` directly (it is the same mutable
+`Headers` reference that feeds `kyOptions`):
+
+```typescript
+client.interceptors.request.use(async (request, options) => {
+  const optsHeaders = options?.headers as Headers | undefined;
+  optsHeaders?.set("Authorization", `Basic ${btoa(`${apiKey}:`)}`);
+  return request; // return original request — Ky applies optsHeaders on top
+});
+```
+
+To **strip** auth (e.g. strict multi-tenant mode, no credentials resolved):
+
+```typescript
+optsHeaders?.delete("Authorization");
+return request;
+```
+
+This applies to **all** header mutations in interceptors, not just
+`Authorization`. Any header set only on the `Request` object will be overwritten
+by the corresponding value from `options.headers` / `kyOptions.headers`.
 
 ---
 

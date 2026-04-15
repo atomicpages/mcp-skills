@@ -63,9 +63,12 @@ child process; operators and MCP clients can still run a single binary.
   { authorization } | null`. Map `ctx.tenantId` (or similar) to secrets from
   Redis/KMS/DB instead of storing raw secrets in context when you need stricter
   handling.
-- **`installPerRequestAuthInterceptor`** (idempotent): Ky (or fetch wrapper)
-  `request` hook that applies resolver output to outbound headers, or strips
-  default auth when strict tenant mode forbids global fallback.
+- **`installPerRequestAuthInterceptor`** (idempotent): registered on
+  `client.interceptors.request` — reads ALS context + credential resolver and
+  sets (or strips) the `Authorization` header for each outbound request.
+  **Critical:** the interceptor must modify `options.headers` (the second
+  parameter), not just the `Request` object — see
+  [openapi-ts.md § PITFALL](openapi-ts.md#pitfall-interceptor-must-modify-optionsheaders-not-just-the-request).
 - **`wrapMcpHttpHandleRequest`**: wraps the transport’s `handleRequest` to
   `await buildRequestContext(req)` then run MCP under ALS; optional
   `requireTenantCredentials` returns **401** when context is empty.
@@ -297,7 +300,8 @@ fetch(request) [startup: interceptor only, no heavy imports]
 - Replicate **three layers**: generated client + domain atomic modules + public
   library orchestration (`*-mcp.ts` or equivalent).
 - Keep **one shared HTTP client**; use interceptors for cross-cutting auth, not
-  per-tool client construction.
+  per-tool client construction. Interceptors **must** modify `options.headers`
+  (not just `Request` headers) — see openapi-ts.md pitfall section.
 - If JSON Schema from Zod fails, audit **BigInt**, **Date**, and **union**
   shapes — the atomic registrar may need sanitization like optional → number
   coercion.

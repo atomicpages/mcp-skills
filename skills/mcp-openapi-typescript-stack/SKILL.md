@@ -136,7 +136,7 @@ interceptor, or both.
 
 ### Scheme families to plan for
 
-**1. HTTP Basic with a derived token (two-part secrets)**  
+**1. HTTP Basic with a derived token (two-part secrets)**
 Some vendors issue an **access key** (or ID) and a **separate secret**. The wire
 format is still RFC 7617 Basic: concatenate with a colon, Base64-encode the
 UTF-8 string, send:
@@ -147,7 +147,7 @@ Operators may create this once in a shell or your CLI reads **two** env vars
 and builds the header at startup. Do not confuse this with “username only”
 Basic (some APIs use empty password).
 
-**2. Bearer token (OAuth or non-OAuth PAT)**  
+**2. Bearer token (OAuth or non-OAuth PAT)**
 After the user or system obtains a token (OAuth flow, developer portal, etc.),
 send:
 
@@ -158,7 +158,7 @@ flow on every tool call. Typical patterns: token in env for stdio; inbound
 `Authorization` forwarded under ALS for HTTP; or a **resolver** that reads a
 refreshed token from a store or sidecar.
 
-**3. APIs that accept Basic *or* Bearer**  
+**3. APIs that accept Basic *or* Bearer**
 The same OpenAPI/SDK can call the same paths; only the **credential shape**
 changes. Implement **one** outbound path (interceptor or default headers) that
 can set either a full `Authorization` string or a small set of variants your
@@ -213,6 +213,34 @@ is the most portable escape hatch when the vendor adds a third scheme later.
 
 For interceptor placement and context flow, see
 [reference/structure-and-flows.md](reference/structure-and-flows.md).
+
+### `@hey-api/client-ky` interceptor pitfall (critical)
+
+The generated `@hey-api/client-ky` client has a two-stage request pipeline:
+first `setAuthParams` sets `Authorization` on `opts.headers` from the global
+config, then interceptors run on the `Request` object. But Ky receives **both**
+the `Request` and `kyOptions` (which references `opts.headers`), and
+**`kyOptions.headers` overwrites Request headers**.
+
+If an interceptor only modifies the `Request` (e.g. `new Request(request, {
+headers })`) without also updating `options.headers`, the global config's
+`Authorization` silently overwrites the per-request auth. This is especially
+dangerous in multi-tenant mode where the global key is empty — outbound requests
+carry `Authorization: Basic Og==` (empty key) instead of the tenant's key,
+causing 401s that look like missing credentials.
+
+**Always modify `options.headers`** (the second interceptor parameter):
+
+```typescript
+client.interceptors.request.use(async (request, options) => {
+  const optsHeaders = options?.headers as Headers | undefined;
+  optsHeaders?.set("Authorization", resolvedAuthValue);
+  return request;
+});
+```
+
+See [reference/openapi-ts.md § PITFALL](reference/openapi-ts.md#pitfall-interceptor-must-modify-optionsheaders-not-just-the-request)
+for the full generated-code walkthrough.
 
 ### Opt-in debug logging (env-gated)
 
@@ -296,8 +324,9 @@ JSON (or structured) MCP content.
 
 **HTTP multi-tenant path:** Incoming `Request` → `buildRequestContext(req)` →
 ALS wraps `handleRequest` → on each outbound HTTP request, an interceptor reads
-ALS + `credentialResolver` → sets or strips auth headers. Empty context +
-`requireTenantCredentials` → **401 before MCP** (fail closed).
+ALS + `credentialResolver` → sets or strips auth on **`options.headers`** (not
+just the `Request` — required by `@hey-api/client-ky`'s two-stage pipeline).
+Empty context + `requireTenantCredentials` → **401 before MCP** (fail closed).
 
 **Edge worker path (Cloudflare Workers / similar):** Module-level code is
 minimal (install credential interceptor, configure base URL). On each request,
@@ -336,6 +365,8 @@ request (generous CPU budget) rather than at startup (strict CPU limit). See
       parses argv/env when you ship a binary.
 - [ ] Multi-tenant mode documented (headers, TLS, resolver hooks, 401
       behavior).
+- [ ] Per-request auth interceptor modifies **`options.headers`** (not just the
+      `Request` object) to survive `@hey-api/client-ky`'s `kyOptions` merge.
 - [ ] Optional **env-gated** debug logging for HTTP tenant/credential resolution
       (safe metadata only; default off); documented in `.env.example`.
 - [ ] Supported auth modes documented (Basic two-part, Bearer, forwarded
