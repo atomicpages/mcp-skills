@@ -26,13 +26,24 @@ example Cursor, Codex, Claude Code, and others are represented on
 
 ## Skills in this repo
 
-| Skill                                                                                     | Path                                                                 |
-| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| **mcp-openapi-typescript-stack** — TypeScript MCP over REST: OpenAPI-generated Ky + Zod, dual transports, library-first layout | [`skills/mcp-openapi-typescript-stack/`](skills/mcp-openapi-typescript-stack/) |
-| **mcp-workflow-design** — design composite, workflow-oriented tools on top of MCP servers | [`skills/mcp-workflow-design/`](skills/mcp-workflow-design/)           |
+| Skill | What it covers | Path |
+| ----- | ---------------- | ---- |
+| **mcp-openapi-typescript-stack** | Portable TypeScript MCP over REST: `@hey-api/openapi-ts` (Ky client, Zod request validators), **dual transports** (stdio + streamable HTTP), optional **multi-tenant credentials** via AsyncLocalStorage, **library-first** package surface (optional CLI), and auth modeling (e.g. Basic from two-part secrets, Bearer/OAuth). Pairs with **mcp-builder** and **mcp-workflow-design**; does not duplicate them. | [`skills/mcp-openapi-typescript-stack/`](skills/mcp-openapi-typescript-stack/) |
+| **mcp-workflow-design** | Evolve 1:1 API-wrapper MCP servers into **composite, outcome-oriented workflow tools**: audit API vs tools, research native vendor automation, identify user flows, implement workflows. Complements **mcp-builder** for greenfield servers. | [`skills/mcp-workflow-design/`](skills/mcp-workflow-design/) |
 
 Add new skills under `skills/<skill-name>/` (each with a `SKILL.md` as required
 by the Agent Skills format).
+
+### Reference material (in-repo)
+
+Long-form detail lives next to each skill:
+
+- **mcp-openapi-typescript-stack**
+  - [`reference/openapi-ts.md`](skills/mcp-openapi-typescript-stack/reference/openapi-ts.md) — CLI, plugins (`@hey-api/sdk` vs legacy `@hey-api/services`), migrations, Valibot notes.
+  - [`reference/structure-and-flows.md`](skills/mcp-openapi-typescript-stack/reference/structure-and-flows.md) — package vs CLI surface, transports, credential/tenant flows, illustrative layout.
+- **mcp-workflow-design**
+  - [`reference/architecture.md`](skills/mcp-workflow-design/reference/architecture.md) — `workflows/` layout, helpers, registration patterns.
+  - [`reference/ashby-ats-example.md`](skills/mcp-workflow-design/reference/ashby-ats-example.md) — worked example of the workflow-design process.
 
 ## Tests
 

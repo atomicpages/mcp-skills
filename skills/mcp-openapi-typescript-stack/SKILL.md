@@ -10,7 +10,8 @@ description: >-
   similar codegen), when comparing this layout to FastMCP or other stacks, or
   after mcp-builder when the stack is TypeScript + generated SDK + MCP SDK, or
   when configuring or debugging @hey-api/openapi-ts (plugins, CLI, Zod
-  validators, Ky client).
+  validators, Ky client), or when adding opt-in env-gated debug logs for HTTP
+  credential / tenant resolution.
 ---
 
 # MCP + OpenAPI TypeScript stack (library-first)
@@ -135,7 +136,7 @@ interceptor, or both.
 
 ### Scheme families to plan for
 
-**1. HTTP Basic with a derived token (two-part secrets)**
+**1. HTTP Basic with a derived token (two-part secrets)**  
 Some vendors issue an **access key** (or ID) and a **separate secret**. The wire
 format is still RFC 7617 Basic: concatenate with a colon, Base64-encode the
 UTF-8 string, send:
@@ -146,7 +147,7 @@ Operators may create this once in a shell or your CLI reads **two** env vars
 and builds the header at startup. Do not confuse this with “username only”
 Basic (some APIs use empty password).
 
-**2. Bearer token (OAuth or non-OAuth PAT)**
+**2. Bearer token (OAuth or non-OAuth PAT)**  
 After the user or system obtains a token (OAuth flow, developer portal, etc.),
 send:
 
@@ -157,7 +158,7 @@ flow on every tool call. Typical patterns: token in env for stdio; inbound
 `Authorization` forwarded under ALS for HTTP; or a **resolver** that reads a
 refreshed token from a store or sidecar.
 
-**3. APIs that accept Basic *or* Bearer**
+**3. APIs that accept Basic *or* Bearer**  
 The same OpenAPI/SDK can call the same paths; only the **credential shape**
 changes. Implement **one** outbound path (interceptor or default headers) that
 can set either a full `Authorization` string or a small set of variants your
@@ -212,6 +213,37 @@ is the most portable escape hatch when the vendor adds a third scheme later.
 
 For interceptor placement and context flow, see
 [reference/structure-and-flows.md](reference/structure-and-flows.md).
+
+### Opt-in debug logging (env-gated)
+
+For **multi-tenant HTTP** and **Docker** / gateway debugging, add **optional**
+`console.error` (or your logger) behind a **boolean env var** so operators can
+turn diagnostics on without noisy production defaults or leaking secrets.
+
+**Pattern:**
+
+- Declare a flag in your validated env schema (e.g. `envalid` `bool({ default:
+  false })`), e.g. `SERVICE_MCP_DEBUG_HTTP_AUTH` or `SERVICE_DEBUG_TENANT_AUTH`.
+  Include it in **strict** `cleanEnv` so deployments that set the var do not
+  fail validation.
+- When enabled, log a **stable prefix** (e.g. `[service-mcp] http-auth`) to
+  **stderr** so logs are easy to grep.
+- Log only **safe metadata**: HTTP method, URL **pathname** (not full URL if it
+  may contain query secrets), **booleans** for whether configured API-key /
+  `Authorization: Basic` / session headers are **present** (non-empty), names
+  of keys in the resolved **context object** (not values), whether context is
+  empty, and explicit **decisions** (e.g. `401` + `reason: empty_tenant_context`).
+- **Never** log header values, Base64 payloads, tokens, or API keys — even
+  “redacted” snippets train operators to expect secrets in logs.
+- **Per-request logs** at the `wrap*HttpHandleRequest` boundary are especially
+  useful: streamable HTTP uses **multiple** HTTP requests (POST, GET/SSE,
+  DELETE). If one leg omits tenant headers, you will see **which method/path**
+  lacked credentials without guessing from the client UI.
+- Document the flag in **`.env.example`**; for containers use `-e
+  SERVICE_MCP_DEBUG_HTTP_AUTH=true`.
+
+This is a **value-add** for support and self-serve debugging; keep it **off** by
+default and **safe** when on.
 
 ---
 
@@ -304,6 +336,8 @@ request (generous CPU budget) rather than at startup (strict CPU limit). See
       parses argv/env when you ship a binary.
 - [ ] Multi-tenant mode documented (headers, TLS, resolver hooks, 401
       behavior).
+- [ ] Optional **env-gated** debug logging for HTTP tenant/credential resolution
+      (safe metadata only; default off); documented in `.env.example`.
 - [ ] Supported auth modes documented (Basic two-part, Bearer, forwarded
       `Authorization`, OAuth expectations) and mapped to env / HTTP / resolver.
 - [ ] If targeting an **edge runtime** (Workers, Deno Deploy): worker entry uses

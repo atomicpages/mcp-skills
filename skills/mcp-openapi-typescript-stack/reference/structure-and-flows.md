@@ -90,6 +90,14 @@ inbound headers. Full matrix and OAuth placement: see
 TLS and trusted infrastructure; production multi-tenant setups often use
 short-lived tokens plus server-side resolution. Never log `Authorization` values.
 
+**Opt-in debug logs:** for operators debugging **missing tenant headers** (e.g.
+streamable HTTP POST vs GET), Docker, or proxies, gate **`console.error`**
+diagnostics behind a **boolean env var** (default off). Log method, pathname,
+header **presence** booleans, context **key names** (not values), and 401
+**reasons** — never secrets. See
+[Opt-in debug logging (env-gated)](../SKILL.md#opt-in-debug-logging-env-gated) in
+`SKILL.md`.
+
 ---
 
 ## 4. OpenAPI codegen and the generated folder
