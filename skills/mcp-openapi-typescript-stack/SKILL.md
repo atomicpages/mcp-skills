@@ -34,6 +34,61 @@ existing MCP server.*
 
 ---
 
+## Recommended starting point: mcp-template
+
+For **greenfield** servers, start from the
+[mcp-template](https://github.com/atomicpages/mcp-template) GitHub template
+repo — **optional but recommended**. It concretizes this skill's architecture
+into a runnable scaffold with placeholder tokens you rename once via `setup.ts`.
+
+**Quick start:**
+
+```bash
+gh repo create --template atomicpages/mcp-template --clone my-service-mcp
+cd my-service-mcp
+bun setup.ts \
+  --kebab my-service \
+  --pascal MyService \
+  --upper MY_SERVICE \
+  --title "My Service"
+
+bun install
+bun run build
+```
+
+**What the template provides:**
+
+- Dual transport (stdio + streamable HTTP) wired to a single tool registry
+- Multi-tenant credential mode via AsyncLocalStorage + interceptor
+- Atomic tool registrar (Zod → inputSchema, BigInt sanitization, error mapping)
+- Workflow helpers (`callApi`, `callApiAll`, response builders)
+- `env.ts` (envalid schema with debug-logging flag)
+- Build script (dual bundle + `.d.ts`)
+- CLI entry with `--http` / `--multi-tenant` flags
+
+**What you implement:**
+
+- Real SDK (OpenAPI codegen or hand-written client)
+- Auth scheme in `configure*Client`
+- Domain tool modules (replace `example.ts`)
+- Workflow modules (replace `example-workflow.ts`)
+
+**When NOT to use the template:**
+
+- Retrofitting an **existing** repo — apply this skill's patterns directly.
+- **Edge-only** deployment (Workers) with no stdio need — the template targets
+  long-lived Node/Bun processes; add a `src/worker.ts` per the edge-runtime
+  guidance below.
+- You need a **different bundler** or runtime (Deno, esbuild-only) — use the
+  repository map and flows from this skill as a blueprint.
+
+The rest of this skill remains the authoritative reference for architecture
+decisions, auth modeling, and edge-runtime patterns regardless of whether you
+start from the template. See `TEMPLATE.md` in the cloned repo for the detailed
+implementation guide.
+
+---
+
 ## HTTP client: use Ky, not axios
 
 For the generated REST client and any hand-written fetch layer in this pattern,
@@ -71,8 +126,10 @@ bunx openapi-ts
 (with `baseUrl`) → `@hey-api/schemas` → `@hey-api/transformers` →
 `@hey-api/typescript` → `@hey-api/sdk` with `validator: { request: "zod" }` so MCP
 atomic tools can reuse generated Zod for tool `inputSchema`. Plugin **order**
-matters; the legacy plugin name **`@hey-api/services`** is now **`@hey-api/sdk`**
-(output **`sdk.gen.ts`**, not `services.gen.ts`).
+matters; the legacy plugin name **`@hey-api/services`** is now **`@hey-api/sdk`**.
+
+**Output:** `sdk.gen.ts` (not the legacy `services.gen.ts`), `client.gen.ts`,
+`types.gen.ts`, `zod.gen.ts`.
 
 **Authoritative detail** (CLI flags, all plugins, migrations, Valibot): see
 [references/openapi-ts.md](references/openapi-ts.md) and the upstream
@@ -85,6 +142,11 @@ matters; the legacy plugin name **`@hey-api/services`** is now **`@hey-api/sdk`*
 **STOP. When a user says "plan" or "implement" an MCP server, your FIRST
 response must ASK these questions — do not skip ahead to architecture or code.
 Present them as a numbered list the user must answer.**
+
+> **Shortcut:** If answers are "both transports, library + CLI, long-lived
+> Node/Bun process" — use
+> [mcp-template](https://github.com/atomicpages/mcp-template) and skip straight
+> to implementation. The template already embodies those defaults.
 
 Answer these for **any** MCP server so the layout stays appropriate:
 
@@ -408,6 +470,23 @@ For ALS/credential flows, BigInt vs JSON Schema, and end-to-end diagrams, see
 [references/structure-and-flows.md](references/structure-and-flows.md). For
 `@hey-api/openapi-ts` plugins, CLI, and generated filenames, see
 [references/openapi-ts.md](references/openapi-ts.md).
+
+---
+
+## Library-first package shape
+
+The package is **both** an importable npm library and a CLI tool via
+`package.json` fields:
+
+- **`exports`** (library entry) — exposes the server factory
+  (`create*McpServer`), client config (`configure*Client`), tool registration
+  (`register*Tools`), and transport helpers (`start*McpTransport`,
+  `connect*McpHttpTransport`). Consumers `import` these to embed the MCP server
+  in their own app or test harness.
+- **`bin`** (CLI entry) — a thin argv/env wrapper that parses flags (e.g.
+  `--http`, `--multi-tenant`), reads environment variables, configures the
+  client, and delegates to the library's server factory and transport helpers.
+  The CLI should **never** contain tool definitions or business logic.
 
 ---
 

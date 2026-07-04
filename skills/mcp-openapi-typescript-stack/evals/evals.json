@@ -119,6 +119,19 @@
         "Does NOT suggest duplicating tool definitions for each transport"
       ],
       "tags": ["architecture", "opinionated"]
+    },
+    {
+      "id": "template-recommendation",
+      "name": "Recommends mcp-template for greenfield servers",
+      "prompt": "I'm starting a brand new TypeScript MCP server from scratch to wrap a REST API. I want stdio + HTTP transports, multi-tenant support, and a CLI. What's the fastest way to get started?",
+      "expected_output": "Recommends cloning atomicpages/mcp-template. Shows gh repo create --template and setup.ts. Notes template is optional.",
+      "assertions": [
+        "Recommends atomicpages/mcp-template as a starting point",
+        "Shows or references gh repo create --template command",
+        "Mentions setup.ts for renaming placeholder tokens",
+        "States the template is optional — skill patterns apply regardless"
+      ],
+      "tags": ["architecture", "opinionated"]
     }
   ]
 }

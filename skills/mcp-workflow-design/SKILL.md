@@ -123,9 +123,9 @@ Follow these AI-native design principles:
 
 #### Principle 1: Outcome Over Operation
 
-Each tool should map to a _user intent_, not an API endpoint. Agents should
-never need to fabricate or guess internal IDs (see Principle 2).
+Each tool should map to a _user intent_, not an API endpoint.
 
+- Agents should never be forced to fabricate or guess UUIDs or internal IDs.
 - Bad: `svc_change_item_status` (forces the agent to know status UUIDs)
 - Good: `svc_advance_item` (accepts status names, resolves IDs internally)
 
