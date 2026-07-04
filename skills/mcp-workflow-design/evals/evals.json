@@ -33,7 +33,7 @@
       "prompt": "I need a workflow tool that moves a candidate to the next pipeline stage. The underlying API endpoint is applicationChangeStage which requires a stageId UUID. What should I name the tool and how should the input work?",
       "expected_output": "Name like 'advance_candidate' (intent-based). Accept human-readable stage name, resolve to UUID internally. Never force the agent to fabricate UUIDs.",
       "assertions": [
-        "Suggests an intent-based name (e.g. advance_candidate, move_candidate_forward) NOT svc_change_application_stage",
+        "Suggests an intent-based name (e.g. svc_advance_candidate, advance_candidate, move_candidate_forward) NOT a raw operation name like svc_change_application_stage or applicationChangeStage",
         "Accepts human-readable inputs (stage name or candidate name) not raw UUIDs",
         "Resolves human-readable inputs to IDs internally within the tool",
         "States that agents should never be forced to fabricate or guess UUIDs"

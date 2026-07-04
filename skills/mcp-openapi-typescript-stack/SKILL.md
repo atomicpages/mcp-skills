@@ -82,6 +82,10 @@ matters; the legacy plugin name **`@hey-api/services`** is now **`@hey-api/sdk`*
 
 ## Discovery questions (ask before planning or implementing)
 
+**STOP. When a user says "plan" or "implement" an MCP server, your FIRST
+response must ASK these questions — do not skip ahead to architecture or code.
+Present them as a numbered list the user must answer.**
+
 Answer these for **any** MCP server so the layout stays appropriate:
 
 1. **Tenancy / credentials**
@@ -378,7 +382,7 @@ if (mode === "http") {
 | **Library-first** | `configure*Client`, `register*Tools`, `create*McpServer`, and HTTP helpers exported from the **library entry**; CLI is a thin argv/env wrapper. |
 | **Generated REST SDK** | Codegen (e.g. `@hey-api/openapi-ts`) → `src/generated/` (`client.gen.ts`, `sdk.gen.ts`, …). **Never hand-edit generated files.** |
 | **Zod for MCP inputs** | Atomic tools: generated `z*Data` (or equivalent); a **registrar** extracts the request `body` shape for MCP `inputSchema`. Workflow tools: hand-written Zod. |
-| **Edge-runtime aware** | Worker entry defers heavy imports (tools, generated Zod/SDK) via dynamic `import()` inside the fetch handler to stay within startup CPU limits. Per-request `McpServer` + stateless transport (SDK's `Protocol.connect()` is one-shot; stateless transport is single-use). Lightweight module-level code only (credential interceptor, base URL config). |
+| **Edge-runtime aware** | Worker entry defers heavy imports (tools, generated Zod/SDK) via dynamic `import()` inside the fetch handler to stay within startup CPU limits. Bundlers (wrangler/esbuild) wrap these deferred modules in lazy `__esm` initializers so schemas evaluate on first request, not at module load. Per-request `McpServer` + stateless transport (SDK's `Protocol.connect()` is one-shot; stateless transport is single-use). Lightweight module-level code only (credential interceptor, base URL config). |
 
 ---
 

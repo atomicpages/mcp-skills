@@ -47,7 +47,7 @@
       "assertions": [
         "Describes RFC 7617 Basic auth with colon-separated key:secret encoded as Base64",
         "Shows Authorization: Basic <Base64(accessKey:accessKeySecret)> wire format",
-        "Uses a single interceptor or client config, NOT per-tool auth branching",
+        "Configures auth in ONE place (interceptor or client config at startup), NOT by setting Authorization inside each individual tool handler",
         "Mentions reading from environment variables (two separate env vars for key and secret)"
       ],
       "tags": ["auth", "opinionated"]
