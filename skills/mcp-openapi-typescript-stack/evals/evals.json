@@ -59,7 +59,7 @@
       "expected_output": "Use dynamic import() inside the fetch handler to defer heavy module evaluation. Module-level code should only include interceptor setup and base URL config. Per-request McpServer + stateless transport.",
       "assertions": [
         "Recommends dynamic import() for the library entry inside the fetch handler",
-        "Explains that bundlers wrap deferred modules in lazy __esm initializers",
+        "Explains WHY dynamic import() defers evaluation (bundler lazy wrappers, module-level code skipped until first call, or equivalent mechanism)",
         "States module-level code must be minimal (interceptor + base URL only)",
         "Mentions per-request McpServer and stateless transport (single-use)",
         "Does NOT suggest loading all tools/schemas at module level"

@@ -280,6 +280,9 @@ For **multi-tenant HTTP** and **Docker** / gateway debugging, add **optional**
 `console.error` (or your logger) behind a **boolean env var** so operators can
 turn diagnostics on without noisy production defaults or leaking secrets.
 
+**All debug output must go to `stderr` with a stable, grep-able prefix (e.g.
+`[service-mcp] http-auth`) so operators can filter logs in noisy containers.**
+
 **Pattern:**
 
 - Declare a flag in your validated env schema (e.g. `envalid` `bool({ default:
