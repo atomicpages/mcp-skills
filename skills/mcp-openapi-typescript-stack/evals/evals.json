@@ -1,0 +1,124 @@
+{
+  "skill_name": "mcp-openapi-typescript-stack",
+  "evals": [
+    {
+      "id": "stack-rejects-axios",
+      "name": "HTTP client choice: Ky over axios",
+      "prompt": "I'm building a TypeScript MCP server that wraps a REST API. I have an OpenAPI spec. What HTTP client should I use for the generated SDK? Compare the options.",
+      "expected_output": "Recommends Ky via @hey-api/client-ky. Does not recommend axios or @hey-api/client-axios.",
+      "assertions": [
+        "Recommends ky or @hey-api/client-ky as the HTTP client",
+        "Does NOT recommend axios or @hey-api/client-axios",
+        "Mentions that Ky fits Request/Response and has a small surface area"
+      ],
+      "tags": ["stack", "opinionated"]
+    },
+    {
+      "id": "codegen-plugin-chain",
+      "name": "openapi-ts plugin chain order",
+      "prompt": "Configure @hey-api/openapi-ts for a TypeScript MCP server. I need a generated Ky client, SDK functions, TypeScript types, and Zod request validators for MCP tool inputSchema. Show me the plugin chain.",
+      "expected_output": "Plugin chain: @hey-api/client-ky (with baseUrl) → @hey-api/schemas → @hey-api/transformers → @hey-api/typescript → @hey-api/sdk with validator: { request: 'zod' }. Plugin order matters.",
+      "assertions": [
+        "Lists @hey-api/client-ky as the first plugin (or early in chain)",
+        "Includes @hey-api/sdk (not the legacy @hey-api/services) with Zod request validator",
+        "States that plugin order matters",
+        "The output file is sdk.gen.ts (not services.gen.ts)"
+      ],
+      "tags": ["codegen", "opinionated"]
+    },
+    {
+      "id": "interceptor-pitfall",
+      "name": "Multi-tenant auth interceptor must modify options.headers",
+      "prompt": "I'm building a multi-tenant MCP server using @hey-api/client-ky. Each HTTP request needs a different Authorization header based on the tenant. I wrote an interceptor that sets the header on the Request object, but I'm getting 401 errors with 'Basic Og==' in the outbound request. What's wrong?",
+      "expected_output": "The interceptor must modify options.headers (the second parameter), not just the Request object. Ky receives both Request and kyOptions, and kyOptions.headers overwrites Request headers.",
+      "assertions": [
+        "Identifies that options.headers (second interceptor parameter) must be modified",
+        "Explains that kyOptions.headers overwrites Request headers in the two-stage pipeline",
+        "Shows the fix: optsHeaders?.set('Authorization', resolvedValue) on the options parameter",
+        "Does NOT suggest only modifying the Request object"
+      ],
+      "tags": ["auth", "pitfall", "opinionated"]
+    },
+    {
+      "id": "auth-basic-two-part",
+      "name": "HTTP Basic from two-part secrets",
+      "prompt": "The API I'm wrapping issues an Access Key and Access Key Secret (two separate values). How should I authenticate in my MCP server? Show the wire format and how to configure it.",
+      "expected_output": "RFC 7617 Basic auth: Base64(accessKey + ':' + accessKeySecret). Single interceptor path, not per-tool branching.",
+      "assertions": [
+        "Describes RFC 7617 Basic auth with colon-separated key:secret encoded as Base64",
+        "Shows Authorization: Basic <Base64(accessKey:accessKeySecret)> wire format",
+        "Uses a single interceptor or client config, NOT per-tool auth branching",
+        "Mentions reading from environment variables (two separate env vars for key and secret)"
+      ],
+      "tags": ["auth", "opinionated"]
+    },
+    {
+      "id": "edge-runtime-deferred-import",
+      "name": "Cloudflare Workers: deferred imports for startup CPU",
+      "prompt": "I want to deploy my MCP server on Cloudflare Workers. The generated zod.gen.ts is 3000+ lines and tool registrations are heavy. Workers has a 50ms startup CPU limit. How do I structure the worker entry?",
+      "expected_output": "Use dynamic import() inside the fetch handler to defer heavy module evaluation. Module-level code should only include interceptor setup and base URL config. Per-request McpServer + stateless transport.",
+      "assertions": [
+        "Recommends dynamic import() for the library entry inside the fetch handler",
+        "Explains that bundlers wrap deferred modules in lazy __esm initializers",
+        "States module-level code must be minimal (interceptor + base URL only)",
+        "Mentions per-request McpServer and stateless transport (single-use)",
+        "Does NOT suggest loading all tools/schemas at module level"
+      ],
+      "tags": ["edge", "opinionated"]
+    },
+    {
+      "id": "library-first-exports",
+      "name": "Library-first package: exports + bin",
+      "prompt": "I want my MCP server package to be both an importable npm library and a CLI tool. How should I structure package.json and the entry points?",
+      "expected_output": "Use package.json 'exports' for the library surface (server factory, transport helpers, client config). Use 'bin' for the CLI entry. CLI is a thin wrapper over the library.",
+      "assertions": [
+        "Uses package.json 'exports' field for library public API",
+        "Uses 'bin' field for CLI entry point",
+        "CLI is described as a thin argv/env wrapper that delegates to library functions",
+        "Library exports include server factory and transport helpers"
+      ],
+      "tags": ["architecture", "opinionated"]
+    },
+    {
+      "id": "discovery-questions",
+      "name": "Planning: asks discovery questions before implementing",
+      "prompt": "I want to build a TypeScript MCP server for a new REST API. I have an OpenAPI spec. Plan the implementation.",
+      "expected_output": "Asks about: tenancy model (single vs multi-tenant), transports (stdio/HTTP/both), deployment target (long-lived vs edge), distribution shape (CLI/library/both), auth schemes.",
+      "assertions": [
+        "Asks about single-tenant vs multi-tenant credentials",
+        "Asks about transport requirements (stdio and/or HTTP)",
+        "Asks about deployment target (Node/Bun vs edge runtime)",
+        "Asks about distribution shape (library, CLI, or both)",
+        "Does NOT jump straight to implementation without clarifying requirements"
+      ],
+      "tags": ["planning", "opinionated"]
+    },
+    {
+      "id": "debug-logging-env-gated",
+      "name": "Debug logging: env-gated, safe metadata only",
+      "prompt": "I'm debugging multi-tenant auth in my MCP server running in Docker. Requests from one tenant get 401s but I can't tell which HTTP leg is missing credentials. How should I add debug logging?",
+      "expected_output": "Add env-gated debug logging (e.g. SERVICE_MCP_DEBUG_HTTP_AUTH=true). Log safe metadata: HTTP method, URL pathname, boolean presence of headers, context keys. Never log header values or secrets.",
+      "assertions": [
+        "Recommends a boolean environment variable to enable debug logging",
+        "Logs go to stderr with a stable grep-able prefix",
+        "Logs only safe metadata: method, pathname, presence booleans, context key names",
+        "Explicitly states to NEVER log header values, tokens, Base64 payloads, or secrets",
+        "Default is off; documented in .env.example"
+      ],
+      "tags": ["debugging", "opinionated"]
+    },
+    {
+      "id": "dual-transport-wiring",
+      "name": "Dual transport: stdio + streamable HTTP from same tools",
+      "prompt": "My MCP server needs to work both as a local stdio process and as a hosted HTTP service. How do I wire both transports without duplicating tool registration?",
+      "expected_output": "Single tool registration shared by both transports. Start function accepts mode parameter. HTTP transport returns a handleRequest function for any Request/Response host.",
+      "assertions": [
+        "Tools are registered once, shared across transports",
+        "A start/connect function accepts a mode parameter (stdio vs http)",
+        "HTTP transport exposes a handleRequest function compatible with Web Request/Response",
+        "Does NOT suggest duplicating tool definitions for each transport"
+      ],
+      "tags": ["architecture", "opinionated"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+name: Skills setup
+description: Checkout repo, setup Node, optionally install dependencies
+
+inputs:
+  install-deps:
+    description: Run npm ci after setup
+    required: false
+    default: "false"
+  node-version:
+    description: Node version to install
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+    - uses: oven-sh/setup-bun@v2
+    - if: ${{ inputs.install-deps == 'true' }}
+      shell: bash
+      run: bun i

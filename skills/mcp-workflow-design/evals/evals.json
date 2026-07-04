@@ -1,0 +1,124 @@
+{
+  "skill_name": "mcp-workflow-design",
+  "evals": [
+    {
+      "id": "phase1-gap-table",
+      "name": "API surface audit produces gap table",
+      "prompt": "I have an MCP server with 12 atomic tools wrapping an HR platform API. The full API has 45 endpoints. How should I analyze what's missing before adding workflow tools?",
+      "expected_output": "Catalog current tools, catalog full API grouped by domain, diff to produce a gap table highlighting unexposed-but-important operations (especially writes).",
+      "assertions": [
+        "Describes cataloging current MCP tools with their names and capabilities",
+        "Describes cataloging the full API surface grouped by domain",
+        "Produces a diff/gap list of unexposed endpoints",
+        "Specifically flags unexposed write operations as critical gaps"
+      ],
+      "tags": ["process", "opinionated"]
+    },
+    {
+      "id": "exclusion-native-automation",
+      "name": "Refuses to build tools for vendor-native automation",
+      "prompt": "I'm building workflow tools for an ATS (applicant tracking system). The vendor already has AI-powered email sequences that auto-send follow-ups to candidates. Should I build an MCP workflow tool for automated email drip campaigns?",
+      "expected_output": "No. Do not build tools for features the vendor handles natively. Research and compile an exclusion list of vendor-native automation.",
+      "assertions": [
+        "Recommends NOT building the email drip workflow tool",
+        "Explains that vendor-native automation should be excluded",
+        "Suggests researching vendor docs for AI features and automation rules",
+        "Mentions compiling an exclusion list of features handled natively"
+      ],
+      "tags": ["exclusion", "opinionated"]
+    },
+    {
+      "id": "outcome-over-operation",
+      "name": "Tool names map to user intent, not API endpoints",
+      "prompt": "I need a workflow tool that moves a candidate to the next pipeline stage. The underlying API endpoint is applicationChangeStage which requires a stageId UUID. What should I name the tool and how should the input work?",
+      "expected_output": "Name like 'advance_candidate' (intent-based). Accept human-readable stage name, resolve to UUID internally. Never force the agent to fabricate UUIDs.",
+      "assertions": [
+        "Suggests an intent-based name (e.g. advance_candidate, move_candidate_forward) NOT svc_change_application_stage",
+        "Accepts human-readable inputs (stage name or candidate name) not raw UUIDs",
+        "Resolves human-readable inputs to IDs internally within the tool",
+        "States that agents should never be forced to fabricate or guess UUIDs"
+      ],
+      "tags": ["design", "opinionated"]
+    },
+    {
+      "id": "response-shape-summary",
+      "name": "Workflow tool response: summary + structured fields",
+      "prompt": "What should the JSON response shape be for a workflow tool that returns a candidate's full profile with their applications, interviews, and feedback?",
+      "expected_output": "Two layers: 'summary' (1-2 sentence natural language) + structured fields (full payload). Summary lets the agent relay directly; structured fields support follow-up.",
+      "assertions": [
+        "Response has a 'summary' field with 1-2 sentence natural language",
+        "Response has structured fields with the full detailed payload",
+        "Summary is described as something the agent can relay directly to the user",
+        "Structured fields support follow-up questions or programmatic use"
+      ],
+      "tags": ["design", "opinionated"]
+    },
+    {
+      "id": "disambiguation-multiple-matches",
+      "name": "Graceful disambiguation when search matches multiple records",
+      "prompt": "My workflow tool searches for a candidate by name. The search returns 3 people named 'Sarah Chen'. What should the tool do?",
+      "expected_output": "Return all matches with enough context for the agent to ask the user to choose. Do NOT silently pick one.",
+      "assertions": [
+        "Returns all matching records, not just the first one",
+        "Includes distinguishing context for each match (e.g. email, role, date)",
+        "Does NOT silently pick one match",
+        "Enables the agent to ask the user to disambiguate"
+      ],
+      "tags": ["design", "opinionated"]
+    },
+    {
+      "id": "fault-tolerance-allsettled",
+      "name": "Fan-out with Promise.allSettled for partial data",
+      "prompt": "My workflow tool fetches data from 5 related API endpoints to build a candidate profile. If one of those calls fails (e.g. the feedback endpoint returns 500), should the entire tool fail?",
+      "expected_output": "No. Use Promise.allSettled. Return partial data with a note about what failed. Don't abort the entire workflow for one sub-call failure.",
+      "assertions": [
+        "Recommends Promise.allSettled (or equivalent) not Promise.all",
+        "Returns partial data from successful calls",
+        "Includes information about which sub-call failed and why",
+        "Does NOT abort the entire workflow for a single sub-call failure"
+      ],
+      "tags": ["implementation", "borderline"]
+    },
+    {
+      "id": "pagination-bounded",
+      "name": "Bounded pagination with truncation flag",
+      "prompt": "My workflow tool aggregates all applications for a hiring pipeline. The API is paginated (50 per page). A popular job might have 500+ applications. How do I handle pagination in the workflow?",
+      "expected_output": "Set a hard upper bound on pages fetched (e.g. 5 pages = 250 results). Include a 'truncated: true' flag if the bound was hit.",
+      "assertions": [
+        "Sets a hard upper bound on pages fetched (not unlimited pagination)",
+        "Specifies a concrete limit (e.g. 5 pages)",
+        "Returns a truncated flag (or similar indicator) when the bound is reached",
+        "Does NOT attempt to fetch all pages regardless of count"
+      ],
+      "tags": ["implementation", "borderline"]
+    },
+    {
+      "id": "full-process-six-phases",
+      "name": "Complete workflow design follows all phases",
+      "prompt": "I have a working MCP server with 30 atomic tools wrapping a project management API. I want to add higher-level workflow tools. Walk me through the full process from analysis to validation.",
+      "expected_output": "Six phases: 1) API Surface Audit, 2) Research Native Automation, 3) Identify User Flows, 4) Design Composite Tools, 5) Implement, 6) Validate.",
+      "assertions": [
+        "Includes an API surface audit phase (catalog tools vs full API, find gaps)",
+        "Includes researching vendor-native automation (exclusion list)",
+        "Includes identifying user flows / common intents",
+        "Includes designing composite tools with clear principles",
+        "Includes implementation and validation phases",
+        "Presents these as a structured sequence, not ad-hoc"
+      ],
+      "tags": ["process", "opinionated"]
+    },
+    {
+      "id": "user-flow-identification",
+      "name": "Identifies user flows from API topology + domain knowledge",
+      "prompt": "How do I determine which workflow tools to build? I have 40 API endpoints for a CRM. I don't want to build a workflow for every possible combination.",
+      "expected_output": "Combine three signals: API topology (which endpoints are always called together), domain knowledge (what practitioners ask day-to-day), and web research (vendor use cases, community patterns). Target 5-10 most common intents.",
+      "assertions": [
+        "Uses API topology analysis (endpoints called together, create-then-link patterns)",
+        "Uses domain knowledge (common practitioner questions)",
+        "Suggests web research of vendor docs and community patterns",
+        "Targets a bounded number of workflows (5-10), not exhaustive coverage"
+      ],
+      "tags": ["process", "opinionated"]
+    }
+  ]
+}

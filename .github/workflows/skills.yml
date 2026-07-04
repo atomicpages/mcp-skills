@@ -1,0 +1,58 @@
+name: Skills
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [labeled]
+  schedule:
+    - cron: "0 9 * * 1" # Weekly Monday 9am UTC
+  workflow_dispatch:
+    inputs:
+      run_evals:
+        description: "Run full eval suite"
+        type: boolean
+        default: false
+
+jobs:
+  lint:
+    name: Validate skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/skills-setup
+      - run: bun -b scripts/validate-skills.ts
+
+  eval:
+    name: Evaluate skills
+    runs-on: ubuntu-latest
+    environment:
+      name: eval
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' && github.event.inputs.run_evals == 'true' ||
+      github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-evals')
+    needs: lint
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/skills-setup
+        with:
+          install-deps: "true"
+      - name: Run evals
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          bunx agent-skills-eval ./skills \
+            --target gpt-4o-mini \
+            --judge gpt-4o-mini \
+            --baseline \
+            --strict \
+            --workspace ./eval-reports \
+            --report
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: eval-report-${{ github.sha }}
+          path: eval-reports/
+          retention-days: 30

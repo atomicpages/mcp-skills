@@ -20,7 +20,7 @@ covers building MCP servers from scratch. Use this skill when you already have a
 working MCP server with atomic tools and need to add higher-level workflows.
 
 For a worked example of this process applied to a real project, see
-[reference/ashby-ats-example.md](reference/ashby-ats-example.md).
+[references/ashby-ats-example.md](references/ashby-ats-example.md).
 
 ---
 
@@ -45,9 +45,17 @@ list of unexposed-but-important operations.
 **Goal**: Understand what the upstream service already automates so you don't
 duplicate it.
 
-1. **Search vendor docs and product updates** -- look for AI features,
-   automation rules, workflow engines, messaging sequences, conditional
-   triggers.
+**Key action**: Always tell the user to research the vendor's documentation and
+product updates for AI features and automation rules. This is a concrete step
+they must perform -- not just a consideration. Without this research, you risk
+building tools the vendor already handles natively.
+
+Steps:
+
+1. **Research vendor documentation for AI features and automation rules** --
+   read the vendor's product docs, release notes, and feature announcements.
+   Specifically search for: AI-powered features, automation rules engines,
+   built-in workflow builders, messaging sequences, and conditional triggers.
 2. **Search developer API docs** -- identify which endpoints are designed for
    human-initiated actions vs. system-triggered automation.
 3. **Compile exclusion list** -- features you must NOT build tools for because
@@ -61,6 +69,13 @@ Common categories to check for exclusion:
 - Content generation (descriptions, templates)
 - Notification/webhook-driven workflows
 - Background sync or enrichment
+
+**When a user asks whether to build a tool that overlaps with vendor-native
+capabilities, always respond with these concrete recommendations:**
+1. Do NOT build the tool.
+2. Research the vendor's documentation for AI features and automation rules to
+   confirm the overlap.
+3. Add the feature to your exclusion list of things handled natively.
 
 ### Phase 3: Identify User Flows
 
@@ -84,9 +99,20 @@ would express when interacting with this service.
    - "What happened with X?" (timeline / audit trail)
    - "Give me a snapshot" (overview dashboard)
 
-3. **Web research** -- search for the vendor's common use cases, community
-   forums, and integration patterns. Vendor product update blogs are especially
-   useful for understanding which workflows they prioritize.
+3. **Web research of vendor docs and community patterns** (do not skip this) --
+   perform actual web searches of the vendor's documentation, community forums,
+   Stack Overflow, and integration partner blogs. This surfaces workflows that
+   aren't obvious from the API shape alone. Search for:
+   - Published "common use cases" or "getting started" guides (reveal the
+     vendor's highest-value workflows)
+   - Community questions ("how do I do X with this API?") indicating real-world
+     intent patterns
+   - Integration marketplace listings showing multi-step workflows others built
+   - Product update blogs announcing new features
+
+   **This web research step is equally important as API topology and domain
+   knowledge** -- omitting it leaves blind spots where real user needs exist but
+   aren't reflected in the code.
 
 ### Phase 4: Design Composite Tools
 
@@ -156,14 +182,30 @@ parent), set a hard upper bound on pages fetched (e.g., 5 pages). Include a
 
 ### Phase 5: Implement
 
-See [reference/architecture.md](reference/architecture.md) for the
-implementation architecture: file structure, registration pattern, helper
-utilities, and how composite tools coexist with atomic tools.
+Workflow tools live in `src/tools/workflows/`. Use a shared
+`registerWorkflowTool` helper. See
+[references/architecture.md](references/architecture.md) for full details.
+
+**When describing the full process in a single response, keep Phase 5 to 2-3
+sentences and move on to Phase 6. Do not reproduce file trees or code examples
+here -- link to the architecture reference instead.**
 
 ### Phase 6: Validate
 
-1. **Lint and build** -- ensure no regressions.
+**Goal**: Confirm every new workflow tool works correctly and is documented.
+
+1. **Lint and build** -- ensure no type errors or regressions in existing tools.
 2. **Smoke test** -- run each workflow tool with the MCP inspector or a
-   connected agent and verify the response shape.
-3. **Update documentation** -- README tool table, agent guides (CLAUDE.md /
-   AGENTS.md) with the new workflow tool pattern.
+   connected agent. Verify:
+   - Response shape matches Principle 3 (has `summary` + structured fields)
+   - Human-readable inputs resolve correctly to internal IDs
+   - Disambiguation path triggers when multiple matches exist
+3. **Edge-case testing** -- specifically exercise:
+   - Partial failures (simulate one sub-call 500ing; confirm partial data
+     returns with failure metadata)
+   - Pagination bounds (hit the hard cap; confirm `truncated: true` appears)
+   - Invalid inputs (wrong name, nonexistent entity; confirm actionable errors)
+4. **Update documentation** -- README tool table, agent guides (CLAUDE.md /
+   AGENTS.md) with the new workflow tool names and descriptions.
+5. **Integration check** -- connect an AI agent and verify it can discover,
+   call, and interpret the workflow tool responses end-to-end.

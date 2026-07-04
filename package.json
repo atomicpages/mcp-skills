@@ -1,0 +1,17 @@
+{
+  "name": "mcp-skills",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "eval": "agent-skills-eval ./skills --baseline --strict --report",
+    "eval:openapi": "agent-skills-eval ./skills/mcp-openapi-typescript-stack --baseline --strict --report",
+    "eval:workflow": "agent-skills-eval ./skills/mcp-workflow-design --baseline --strict --report",
+    "lint": "bun -b scripts/validate-skills.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "agent-skills-eval": "^0.1.1",
+    "typescript": "^6.0.3"
+  }
+}

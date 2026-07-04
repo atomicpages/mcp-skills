@@ -23,8 +23,8 @@ file and function names; the **roles** stay the same.
 
 Use it **together with**:
 
-- [mcp-builder](../mcp-builder/SKILL.md) — protocol framing, tool design, MCP
-  SDK usage, evaluation.
+- [mcp-builder](https://skills.sh/anthropics/skills/mcp-builder) — protocol
+  framing, tool design, MCP SDK usage, evaluation.
 - [mcp-workflow-design](../mcp-workflow-design/SKILL.md) — composite workflow
   tools on top of atomic 1:1 API tools.
 
@@ -40,8 +40,16 @@ For the generated REST client and any hand-written fetch layer in this pattern,
 use **[ky](https://github.com/sindresorhus/ky)** via **`@hey-api/client-ky`**.
 **Do not use axios** — avoid `@hey-api/client-axios`, axios interceptors, or
 axios examples when implementing or regenerating clients for MCP servers in this
-stack. Ky fits `Request`/`Response`, keeps a small surface, and matches the
-interceptor style used for per-request / multi-tenant auth.
+stack.
+
+**Why Ky over axios for MCP:**
+
+- Ky fits the Web **`Request`/`Response`** APIs (built on `fetch`) — same types
+  edge workers and streamable HTTP hosts use.
+- Ky has a **small surface area** — fewer methods and config knobs than axios,
+  which keeps generated clients and interceptors easy to reason about.
+- Ky matches the **interceptor style** this stack uses for per-request /
+  multi-tenant auth (`options.headers`, not axios config merging).
 
 ---
 
@@ -67,7 +75,7 @@ matters; the legacy plugin name **`@hey-api/services`** is now **`@hey-api/sdk`*
 (output **`sdk.gen.ts`**, not `services.gen.ts`).
 
 **Authoritative detail** (CLI flags, all plugins, migrations, Valibot): see
-[reference/openapi-ts.md](reference/openapi-ts.md) and the upstream
+[references/openapi-ts.md](references/openapi-ts.md) and the upstream
 [hey-api/openapi-ts](https://github.com/hey-api/openapi-ts) docs.
 
 ---
@@ -94,7 +102,7 @@ Answer these for **any** MCP server so the layout stays appropriate:
      Generated Zod schemas (`zod.gen.ts`) can be thousands of lines; static
      imports cause all schemas to evaluate at startup, exceeding the budget.
      Plan for **deferred module loading** (see
-     [reference/structure-and-flows.md](reference/structure-and-flows.md)).
+     [references/structure-and-flows.md](references/structure-and-flows.md)).
 
 4. **Distribution shape**
    - **CLI-only** binary (users run a command)?
@@ -143,9 +151,29 @@ UTF-8 string, send:
 
 `Authorization: Basic <Base64(accessKey + ":" + accessKeySecret)>`
 
-Operators may create this once in a shell or your CLI reads **two** env vars
-and builds the header at startup. Do not confuse this with “username only”
-Basic (some APIs use empty password).
+Read **two separate environment variables** — one for the access key, one for
+the access key secret. Do not confuse this with “username only” Basic (some APIs
+use empty password).
+
+**`.env.example`:**
+
+```bash
+# Two-part HTTP Basic credentials (RFC 7617)
+SERVICE_ACCESS_KEY=
+SERVICE_ACCESS_KEY_SECRET=
+```
+
+**Single-tenant startup** (read both vars, set global client header once):
+
+```typescript
+const accessKey = process.env.SERVICE_ACCESS_KEY!;
+const accessKeySecret = process.env.SERVICE_ACCESS_KEY_SECRET!;
+const authorization = `Basic ${btoa(`${accessKey}:${accessKeySecret}`)}`;
+client.setConfig({ headers: { authorization } });
+```
+
+Operators may also pre-compute the header once in a shell; the CLI pattern above
+is the usual approach for MCP servers.
 
 **2. Bearer token (OAuth or non-OAuth PAT)**
 After the user or system obtains a token (OAuth flow, developer portal, etc.),
@@ -212,7 +240,7 @@ is the most portable escape hatch when the vendor adds a third scheme later.
   cannot bleed credentials across concurrent requests.
 
 For interceptor placement and context flow, see
-[reference/structure-and-flows.md](reference/structure-and-flows.md).
+[references/structure-and-flows.md](references/structure-and-flows.md).
 
 ### `@hey-api/client-ky` interceptor pitfall (critical)
 
@@ -239,7 +267,7 @@ client.interceptors.request.use(async (request, options) => {
 });
 ```
 
-See [reference/openapi-ts.md § PITFALL](reference/openapi-ts.md#pitfall-interceptor-must-modify-optionsheaders-not-just-the-request)
+See [references/openapi-ts.md § PITFALL](references/openapi-ts.md#pitfall-interceptor-must-modify-optionsheaders-not-just-the-request)
 for the full generated-code walkthrough.
 
 ### Opt-in debug logging (env-gated)
@@ -261,17 +289,83 @@ turn diagnostics on without noisy production defaults or leaking secrets.
   `Authorization: Basic` / session headers are **present** (non-empty), names
   of keys in the resolved **context object** (not values), whether context is
   empty, and explicit **decisions** (e.g. `401` + `reason: empty_tenant_context`).
-- **Never** log header values, Base64 payloads, tokens, or API keys — even
-  “redacted” snippets train operators to expect secrets in logs.
+- **NEVER log:** header values, tokens, Base64 payloads, or secrets — including
+  “redacted” snippets or auth-type prefixes derived from credential material.
 - **Per-request logs** at the `wrap*HttpHandleRequest` boundary are especially
   useful: streamable HTTP uses **multiple** HTTP requests (POST, GET/SSE,
   DELETE). If one leg omits tenant headers, you will see **which method/path**
   lacked credentials without guessing from the client UI.
-- Document the flag in **`.env.example`**; for containers use `-e
-  SERVICE_MCP_DEBUG_HTTP_AUTH=true`.
+
+**Do not log:**
+
+| Do not log | Why |
+|------------|-----|
+| Header values | Includes `Authorization`, API-key headers |
+| Tokens | Bearer/JWT/session tokens |
+| Base64 payloads | Basic-auth and encoded credential blobs |
+| Secrets | API keys, access-key secrets, passwords |
+
+**`.env.example`:**
+
+```bash
+# NEVER log header values, tokens, Base64 payloads, or secrets — metadata only.
+SERVICE_MCP_DEBUG_HTTP_AUTH=false
+```
+
+Document the flag in **`.env.example`**; for containers use `-e
+SERVICE_MCP_DEBUG_HTTP_AUTH=true`.
 
 This is a **value-add** for support and self-serve debugging; keep it **off** by
 default and **safe** when on.
+
+---
+
+### Dual transport wiring
+
+Register tools **once** in `create*McpServer()`. Expose **one entrypoint** that
+accepts a `mode` parameter — the CLI passes `stdio` or `http` here. Do **not**
+split into separate `startStdio()` / `startHttp()` functions as the primary API.
+
+```typescript
+export async function startMcpTransport(opts: {
+  mode: "stdio" | "http";
+  port?: number;
+}) {
+  const server = createMcpServer(); // tools registered once
+
+  if (opts.mode === "stdio") {
+    await server.connect(new StdioServerTransport());
+    return;
+  }
+
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  await server.connect(transport);
+  return {
+    handleRequest: (req: Request) => transport.handleRequest(req),
+  };
+}
+```
+
+- **stdio** mode: blocks until the MCP client disconnects.
+- **http** mode: returns `handleRequest` for any Web `Request`/`Response` host
+  (Bun.serve, Hono, Cloudflare Workers, etc.) — keep the library agnostic of
+  the Web runtime.
+- Optional `connect*McpHttpTransport()` helper is fine for embedders; `start*McpTransport({ mode })` is the dispatch surface the CLI should call.
+
+**CLI** (thin wrapper — passes mode to the single entrypoint):
+
+```typescript
+const mode = (process.argv[2] ?? "stdio") as "stdio" | "http";
+
+if (mode === "http") {
+  const { handleRequest } = await startMcpTransport({ mode: "http" });
+  Bun.serve({ port: Number(process.env.PORT ?? 3000), fetch: handleRequest });
+} else {
+  await startMcpTransport({ mode: "stdio" });
+}
+```
 
 ---
 
@@ -300,13 +394,13 @@ default and **safe** when on.
 | **Domain atomic modules** | e.g. `src/tools/<domain>.ts` — import `sdkFn` + generated schemas, call the atomic registrar. |
 | **Workflow module** | e.g. `src/tools/workflows/` — `registerWorkflowTool` + shared `callSdk` / `callSdkAll`-style helpers. |
 | **Generated output** | e.g. `src/generated/` — Ky client, SDK functions, Zod (from OpenAPI or your generator). |
-| **Codegen config** | e.g. `openapi-ts.config.ts` — see [reference/openapi-ts.md](reference/openapi-ts.md). |
+| **Codegen config** | e.g. `openapi-ts.config.ts` — see [references/openapi-ts.md](references/openapi-ts.md). |
 | **Package surface** | `package.json` — `exports` → library bundle; `bin` → CLI when you ship one. |
 
 For ALS/credential flows, BigInt vs JSON Schema, and end-to-end diagrams, see
-[reference/structure-and-flows.md](reference/structure-and-flows.md). For
+[references/structure-and-flows.md](references/structure-and-flows.md). For
 `@hey-api/openapi-ts` plugins, CLI, and generated filenames, see
-[reference/openapi-ts.md](reference/openapi-ts.md).
+[references/openapi-ts.md](references/openapi-ts.md).
 
 ---
 
@@ -336,7 +430,7 @@ with multi-tenant `handleRequest` → return `Response`. The dynamic `import()` 
 key: bundlers (wrangler/esbuild) wrap deferred modules in lazy `__esm`
 initializers so generated Zod schemas and tool registrations evaluate on first
 request (generous CPU budget) rather than at startup (strict CPU limit). See
-[reference/structure-and-flows.md § Edge runtimes](reference/structure-and-flows.md#6-edge-runtimes-cloudflare-workers-deno-deploy-etc).
+[references/structure-and-flows.md § Edge runtimes](references/structure-and-flows.md#6-edge-runtimes-cloudflare-workers-deno-deploy-etc).
 
 ---
 
@@ -348,6 +442,12 @@ request (generous CPU budget) rather than at startup (strict CPU limit). See
    single- vs multi-tenant, wire OpenAPI codegen and atomic/workflow registrars.
 3. **mcp-workflow-design** — Audit SDK vs tools, add workflows, return
    `summary` + structured `data` where useful.
+
+---
+
+## Dependency versioning rule (mandatory)
+
+**Always run `npm view <pkg>@latest version` before pinning any dep.** Never rely on recalled versions. Stack packages most likely to have major bumps: `zod`, `@modelcontextprotocol/sdk`, `@cloudflare/workers-types`, `@hey-api/openapi-ts`, `ky`, `wrangler`, etc.
 
 ---
 

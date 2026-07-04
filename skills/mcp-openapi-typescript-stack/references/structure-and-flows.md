@@ -27,6 +27,11 @@ child process; operators and MCP clients can still run a single binary.
 
 ## 2. Transport layering
 
+Expose **`start*McpTransport({ mode: "stdio" | "http" })`** as the primary
+transport selector. The CLI passes `mode` to this single entrypoint — do not
+split into separate `startStdio()` / `startHttp()` as the primary API. HTTP mode
+returns `handleRequest` for any Web `Request`/`Response` host.
+
 ### stdio
 
 - Dynamic import `@modelcontextprotocol/sdk/server/stdio.js`.
@@ -97,7 +102,7 @@ short-lived tokens plus server-side resolution. Never log `Authorization` values
 streamable HTTP POST vs GET), Docker, or proxies, gate **`console.error`**
 diagnostics behind a **boolean env var** (default off). Log method, pathname,
 header **presence** booleans, context **key names** (not values), and 401
-**reasons** — never secrets. See
+**reasons**. NEVER log header values, tokens, Base64 payloads, or secrets. See
 [Opt-in debug logging (env-gated)](../SKILL.md#opt-in-debug-logging-env-gated) in
 `SKILL.md`.
 

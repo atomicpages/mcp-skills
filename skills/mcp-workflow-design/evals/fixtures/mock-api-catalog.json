@@ -1,0 +1,38 @@
+{
+  "_description": "Mock API catalog for eval scenarios. 15 endpoints, 8 exposed as MCP tools, intentional gaps.",
+  "service": "TaskFlow",
+  "domain": "Project Management",
+  "endpoints": [
+    { "method": "GET", "path": "/projects", "operationId": "listProjects", "domain": "projects", "exposed": true },
+    { "method": "GET", "path": "/projects/{id}", "operationId": "getProject", "domain": "projects", "exposed": true },
+    { "method": "POST", "path": "/projects", "operationId": "createProject", "domain": "projects", "exposed": false },
+    { "method": "GET", "path": "/projects/{id}/tasks", "operationId": "listProjectTasks", "domain": "tasks", "exposed": true },
+    { "method": "GET", "path": "/tasks/{id}", "operationId": "getTask", "domain": "tasks", "exposed": true },
+    { "method": "POST", "path": "/tasks", "operationId": "createTask", "domain": "tasks", "exposed": false },
+    { "method": "PATCH", "path": "/tasks/{id}/status", "operationId": "changeTaskStatus", "domain": "tasks", "exposed": false },
+    { "method": "GET", "path": "/tasks/{id}/comments", "operationId": "listTaskComments", "domain": "tasks", "exposed": true },
+    { "method": "POST", "path": "/tasks/{id}/comments", "operationId": "createComment", "domain": "tasks", "exposed": false },
+    { "method": "GET", "path": "/users", "operationId": "listUsers", "domain": "users", "exposed": true },
+    { "method": "GET", "path": "/users/{id}", "operationId": "getUser", "domain": "users", "exposed": true },
+    { "method": "GET", "path": "/users/{id}/assigned-tasks", "operationId": "listUserTasks", "domain": "users", "exposed": true },
+    { "method": "POST", "path": "/tasks/{id}/assign", "operationId": "assignTask", "domain": "tasks", "exposed": false },
+    { "method": "GET", "path": "/projects/{id}/timeline", "operationId": "getProjectTimeline", "domain": "projects", "exposed": false },
+    { "method": "POST", "path": "/projects/{id}/archive", "operationId": "archiveProject", "domain": "projects", "exposed": false }
+  ],
+  "native_automation": [
+    "Automated task status notifications via webhook",
+    "AI-generated task summaries from comments",
+    "Recurring task creation from templates",
+    "Auto-assignment based on workload balancing rules"
+  ],
+  "exposed_tools": [
+    "taskflow_list_projects",
+    "taskflow_get_project",
+    "taskflow_list_project_tasks",
+    "taskflow_get_task",
+    "taskflow_list_task_comments",
+    "taskflow_list_users",
+    "taskflow_get_user",
+    "taskflow_list_user_tasks"
+  ]
+}

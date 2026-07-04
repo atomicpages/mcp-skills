@@ -39,32 +39,65 @@ by the Agent Skills format).
 Long-form detail lives next to each skill:
 
 - **mcp-openapi-typescript-stack**
-  - [`reference/openapi-ts.md`](skills/mcp-openapi-typescript-stack/reference/openapi-ts.md) — CLI, plugins (`@hey-api/sdk` vs legacy `@hey-api/services`), migrations, Valibot notes.
-  - [`reference/structure-and-flows.md`](skills/mcp-openapi-typescript-stack/reference/structure-and-flows.md) — package vs CLI surface, transports, credential/tenant flows, illustrative layout.
+  - [`references/openapi-ts.md`](skills/mcp-openapi-typescript-stack/references/openapi-ts.md) — CLI, plugins (`@hey-api/sdk` vs legacy `@hey-api/services`), migrations, Valibot notes.
+  - [`references/structure-and-flows.md`](skills/mcp-openapi-typescript-stack/references/structure-and-flows.md) — package vs CLI surface, transports, credential/tenant flows, illustrative layout.
 - **mcp-workflow-design**
-  - [`reference/architecture.md`](skills/mcp-workflow-design/reference/architecture.md) — `workflows/` layout, helpers, registration patterns.
-  - [`reference/ashby-ats-example.md`](skills/mcp-workflow-design/reference/ashby-ats-example.md) — worked example of the workflow-design process.
+  - [`references/architecture.md`](skills/mcp-workflow-design/references/architecture.md) — `workflows/` layout, helpers, registration patterns.
+  - [`references/ashby-ats-example.md`](skills/mcp-workflow-design/references/ashby-ats-example.md) — worked example of the workflow-design process.
 
-## Tests
+## Evaluations
 
-I benchmarked these skills creating two MCP servers:
+Each skill includes an `evals/evals.json` file with assertions tested via [agent-skills-eval](https://github.com/darkrishabh/agent-skills-eval) — the same prompt runs **with** and **without** the skill loaded, and a judge model grades both to measure **skill lift**.
 
-- [Gong](https://www.gong.io/)
-- [Ashby](https://www.ashbyhq.com/)
+### Run locally
 
-My prompt:
+```bash
+npm install
 
-> I want to build a MCP server around gong. While they have an official MCP server, I find it lacking in many respects. Please review their API documentation and plan the creation of a new MCP server using relevant skills to perform this task <API DOC URL>
->
-> During plan creation, please indicate at each step which skill you are using
+# Lint (no API key needed)
+npm run lint
 
+# Run all evals (requires OpenAI-compatible API key)
+export OPENAI_API_KEY=sk-...
+npm run eval
 
-### Claude Code
+# Run a single skill's evals
+npm run eval:openapi
+npm run eval:workflow
+```
 
-- Opus 4.6 high obviously worked extremely well
-- Sonnet 4.5 medium worked very well
+Reports land in `eval-reports/` (gitignored). Open `iteration-1/report/index.html` for the visual report.
 
-### OpenCode
+### Configuration
 
-- Opus 4.6 worked extremely well
-- Sonnet 4.5 worked well, but required more iteration on a plan. Opus I was able to one-shot
+See [`agent-skills-eval.yaml`](agent-skills-eval.yaml) for full config. Override target/judge models via CLI:
+
+```bash
+npx agent-skills-eval ./skills --target gpt-4o --judge gpt-4o --baseline --strict --report
+```
+
+### CI
+
+GitHub Actions runs lint on every PR and evals weekly (or on-demand via the `run-evals` label). See [`.github/workflows/skills.yml`](.github/workflows/skills.yml).
+
+### Eval coverage
+
+| Skill | Evals | Focus |
+|-------|-------|-------|
+| mcp-openapi-typescript-stack | 9 | Ky over axios, plugin chain order, interceptor pitfall, edge runtime deferred imports, library-first exports, auth modeling, discovery questions, debug logging, dual transport |
+| mcp-workflow-design | 9 | API audit gap table, vendor automation exclusion, intent-based naming, response shape, disambiguation, fault tolerance, bounded pagination, full 6-phase process, user flow identification |
+
+### Case studies
+
+These skills were benchmarked end-to-end building MCP servers for [Gong](https://www.gong.io/) and [Ashby](https://www.ashbyhq.com/):
+
+> I want to build a MCP server around gong. While they have an official MCP server, I find it lacking in many respects. Please review their API documentation and plan the creation of a new MCP server using relevant skills to perform this task.
+
+| Agent | Model | Result |
+|-------|-------|--------|
+| Claude Code | Opus 4.6 high | Excellent — one-shot |
+| Claude Code | Sonnet 4.5 medium | Very good |
+| OpenCode | Opus 4.6 | Excellent — one-shot |
+| OpenCode | Sonnet 4.5 | Good, required iteration |
+
+Formal eval IDs covering equivalent scenarios: `stack-rejects-axios`, `codegen-plugin-chain`, `discovery-questions`, `full-process-six-phases`.
