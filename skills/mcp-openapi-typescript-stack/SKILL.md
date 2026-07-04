@@ -164,11 +164,7 @@ Answer these for **any** MCP server so the layout stays appropriate:
 3. **Deployment target**
    - **Long-lived process** (Node / Bun on a VM or container)?
    - **Edge runtime** (Cloudflare Workers, Deno Deploy, Vercel Edge)?
-   - Edge runtimes impose **startup CPU limits** (e.g. Workers: ~50 ms CPU).
-     Generated Zod schemas (`zod.gen.ts`) can be thousands of lines; static
-     imports cause all schemas to evaluate at startup, exceeding the budget.
-     Plan for **deferred module loading** (see
-     [references/structure-and-flows.md](references/structure-and-flows.md)).
+     Plan for **deferred module loading** if targeting edge (see below).
 
 4. **Distribution shape**
    - **CLI-only** binary (users run a command)?
@@ -256,46 +252,15 @@ refreshed token from a store or sidecar.
 The same OpenAPI/SDK can call the same paths; only the **credential shape**
 changes. Implement **one** outbound path (interceptor or default headers) that
 can set either a full `Authorization` string or a small set of variants your
-resolver returns (see table below). Avoid branching every tool; keep auth in
+resolver returns. Avoid branching every tool; keep auth in
 client config + interceptor.
 
-### Worked example: Gong Public API (illustrative)
+A resolver that returns **`{ authorization: string }`** (full header value)
+is the most portable escape hatch — works for Basic, Bearer, or future schemes.
 
-[Gong](https://www.gong.io/) documents two credential paths (check current
-vendor docs for details):
-
-- **Manual / key pair:** Technical admin creates an **Access Key** and **Access
-  Key Secret** in the Gong API page. Call the Public API with Basic auth using
-  the Base64 of `accessKey:accessKeySecret` as above.
-- **OAuth:** Follow the vendor OAuth guide to obtain a Bearer access token; call
-  the API with `Authorization: Bearer <token>`.
-
-For an MCP server in *this* stack: **same** generated client and tools; choose
-per deployment whether `configure*Client` (or the per-request resolver) sets
-**Basic from two env vars** or **Bearer from one env / forwarded header**. If you
-support **both** at runtime, define precedence (e.g. Bearer in context overrides
-global Basic) and document it.
-
-### Mapping schemes to single-tenant vs multi-tenant HTTP
-
-| Upstream expectation | Single-tenant (shared client) | Multi-tenant HTTP (ALS + resolver) |
-| -------------------- | ----------------------------- | ---------------------------------- |
-| Basic from key + secret | Set default `Authorization` when creating the Ky client, or set headers in `configure*Client`. | `buildRequestContext` copies two headers or one custom header pair; resolver returns `{ authorization: "Basic …" }` after combining, or you store a precomputed Basic string per tenant. |
-| Bearer only | `Authorization: Bearer ${TOKEN}` from env. | Forward inbound `Authorization` if trusted, or resolver loads Bearer per tenant from DB/KMS. |
-| Operator passes full header | Single env `UPSTREAM_AUTHORIZATION` (discourage for production; rotation pain). | Prefer forwarding `Authorization` from MCP HTTP request to upstream (still only over TLS). |
-
-A resolver that can return **`{ authorization: string }`** (full header value)
-is the most portable escape hatch when the vendor adds a third scheme later.
-
-### OAuth and refresh
-
-- **stdio / local MCP:** Users often paste or inject a long-lived token, or you
-  document a small companion script that refreshes and writes env — keep refresh
-  logic out of hot tool paths when possible.
-- **Hosted HTTP MCP:** Gateway validates the user, attaches Bearer, or injects
-  tenant id so the resolver fetches the current access token server-side.
-- **Document** whether your package implements OAuth endpoints or expects tokens
-  **already issued**.
+For OAuth: keep refresh logic out of hot tool paths. stdio users paste tokens;
+hosted HTTP MCP gets tokens from a gateway or resolver. Document whether your
+package implements OAuth endpoints or expects tokens **already issued**.
 
 ### Security notes
 
@@ -365,27 +330,12 @@ turn diagnostics on without noisy production defaults or leaking secrets.
   DELETE). If one leg omits tenant headers, you will see **which method/path**
   lacked credentials without guessing from the client UI.
 
-**Do not log:**
-
-| Do not log | Why |
-|------------|-----|
-| Header values | Includes `Authorization`, API-key headers |
-| Tokens | Bearer/JWT/session tokens |
-| Base64 payloads | Basic-auth and encoded credential blobs |
-| Secrets | API keys, access-key secrets, passwords |
-
 **`.env.example`:**
 
 ```bash
 # NEVER log header values, tokens, Base64 payloads, or secrets — metadata only.
 SERVICE_MCP_DEBUG_HTTP_AUTH=false
 ```
-
-Document the flag in **`.env.example`**; for containers use `-e
-SERVICE_MCP_DEBUG_HTTP_AUTH=true`.
-
-This is a **value-add** for support and self-serve debugging; keep it **off** by
-default and **safe** when on.
 
 ---
 
@@ -435,19 +385,6 @@ if (mode === "http") {
   await startMcpTransport({ mode: "stdio" });
 }
 ```
-
----
-
-## What this stack optimizes for
-
-| Property | Pattern (rename symbols per project) |
-| -------- | ------------------------------------ |
-| **Dual transport** | `start*McpTransport({ mode: "stdio" \| "http" })` plus a `connect*McpHttpTransport()` (or equivalent) that returns `handleRequest` for any Web `Request`/`Response` host. |
-| **Multi-tenant (optional)** | `credentialMode: "shared" \| "multi-tenant"` (or flags with the same meaning); AsyncLocalStorage + HTTP client interceptor + optional `buildRequestContext` / `setCredentialResolver`. |
-| **Library-first** | `configure*Client`, `register*Tools`, `create*McpServer`, and HTTP helpers exported from the **library entry**; CLI is a thin argv/env wrapper. |
-| **Generated REST SDK** | Codegen (e.g. `@hey-api/openapi-ts`) → `src/generated/` (`client.gen.ts`, `sdk.gen.ts`, …). **Never hand-edit generated files.** |
-| **Zod for MCP inputs** | Atomic tools: generated `z*Data` (or equivalent); a **registrar** extracts the request `body` shape for MCP `inputSchema`. Workflow tools: hand-written Zod. |
-| **Edge-runtime aware** | Worker entry defers heavy imports (tools, generated Zod/SDK) via dynamic `import()` inside the fetch handler to stay within startup CPU limits. Bundlers (wrangler/esbuild) wrap these deferred modules in lazy `__esm` initializers so schemas evaluate on first request, not at module load. Per-request `McpServer` + stateless transport (SDK's `Protocol.connect()` is one-shot; stateless transport is single-use). Lightweight module-level code only (credential interceptor, base URL config). |
 
 ---
 
@@ -517,17 +454,6 @@ key: bundlers (wrangler/esbuild) wrap deferred modules in lazy `__esm`
 initializers so generated Zod schemas and tool registrations evaluate on first
 request (generous CPU budget) rather than at startup (strict CPU limit). See
 [references/structure-and-flows.md § Edge runtimes](references/structure-and-flows.md#6-edge-runtimes-cloudflare-workers-deno-deploy-etc).
-
----
-
-## Workflow with companion skills
-
-1. **mcp-builder** — Pick TypeScript + MCP SDK, define transport needs, tool
-   naming, annotations (`readOnlyHint`, etc.), error message style.
-2. **This skill** — Split `exports` vs `bin`, wire stdio vs HTTP, decide
-   single- vs multi-tenant, wire OpenAPI codegen and atomic/workflow registrars.
-3. **mcp-workflow-design** — Audit SDK vs tools, add workflows, return
-   `summary` + structured `data` where useful.
 
 ---
 
