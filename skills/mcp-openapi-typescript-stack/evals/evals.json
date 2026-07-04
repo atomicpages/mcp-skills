@@ -132,6 +132,20 @@
         "States the template is optional — skill patterns apply regardless"
       ],
       "tags": ["architecture", "opinionated"]
+    },
+    {
+      "id": "readonly-hint-safety",
+      "name": "readOnlyHint: fail-safe default and verification",
+      "prompt": "I'm building a TypeScript MCP server with 40+ atomic tools wrapping a REST API. The registrar has `config.readOnly ?? true` as the default. Some tools are POST endpoints that create or update records. Is this safe?",
+      "expected_output": "Identifies config.readOnly ?? true as a security anti-pattern. Recommends defaulting to false. Suggests inferring readOnly from HTTP method. Provides a test pattern.",
+      "assertions": [
+        "Identifies readOnly defaulting to true as dangerous — suppresses user confirmation for write tools",
+        "Recommends config.readOnly ?? false to match MCP protocol default",
+        "Suggests deriving readOnly from HTTP method (GET = true, POST/PUT/PATCH/DELETE = false)",
+        "Provides or references a test pattern to verify readOnlyHint correctness",
+        "Does NOT suggest that defaulting to true is acceptable"
+      ],
+      "tags": ["security", "opinionated"]
     }
   ]
 }

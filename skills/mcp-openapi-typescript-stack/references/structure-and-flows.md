@@ -145,6 +145,112 @@ the spec and regenerating, not by editing generated TS.
 This split keeps **1:1 tools** cheap to add (codegen + one registrar block per
 endpoint) while **workflows** stay intent-shaped.
 
+### readOnlyHint resolution and verification
+
+MCP clients use `readOnlyHint` to decide whether to prompt users before a tool
+executes. A registrar that defaults `readOnly` to `true` when the caller omits
+it (`config.readOnly ?? true`) is a **security anti-pattern** — in production
+this let 32 write tools ship without user confirmation prompts. The MCP protocol
+defaults `readOnlyHint` to `false`; the registrar must match.
+
+**Resolution hierarchy:**
+
+1. Explicit `readOnly` in tool config (highest priority)
+2. HTTP method inference from OpenAPI (GET/HEAD/OPTIONS = `true`, else `false`)
+3. Fail-safe: `false` (assume write)
+
+**`resolveReadOnly()` helper:**
+
+```typescript
+type HttpMethod = "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+function resolveReadOnly(config: { readOnly?: boolean; httpMethod?: HttpMethod }): boolean {
+  if (config.readOnly !== undefined) {
+    return config.readOnly;
+  }
+
+  if (config.httpMethod) {
+    return ["GET", "HEAD", "OPTIONS"].includes(config.httpMethod);
+  }
+
+  return false;
+}
+```
+
+**POST-for-reads caveat:** APIs that use POST for list/search/info endpoints
+(e.g. Ashby, some GraphQL-over-REST) need explicit `readOnly: true` at the call
+site — method inference alone would mark them as writes.
+
+**Registrar integration:**
+
+```typescript
+const readOnly = resolveReadOnly(config);
+
+server.registerTool(config.name, {
+  // ...
+  annotations: {
+    readOnlyHint: readOnly,
+    destructiveHint: !readOnly,
+    idempotentHint: readOnly,
+    openWorldHint: true,
+  },
+}, handler);
+```
+
+**Anti-pattern (never do this):**
+
+```typescript
+const readOnly = config.readOnly ?? true; // WRONG: suppresses user confirmation for write tools
+```
+
+**Verification test A — snapshot map** (exhaustive, catches drift):
+
+```typescript
+import { expect, test } from "bun:test";
+
+const EXPECTED_READONLY: Record<string, boolean> = {
+  "service_candidate_list": true,
+  "service_candidate_search": true,
+  "service_opening_set_archived": false,
+  "service_opening_remove_job": false,
+  // ... exhaustive list of all tools
+};
+
+test("every tool has correct readOnlyHint", () => {
+  const server = createTestMcpServer();
+
+  for (const [name, tool] of server.registeredTools) {
+    expect(EXPECTED_READONLY[name], `${name} not in map`).toBeDefined();
+    expect(tool.annotations?.readOnlyHint, name).toBe(EXPECTED_READONLY[name]);
+  }
+
+  expect(server.registeredTools.size).toBe(Object.keys(EXPECTED_READONLY).length);
+});
+```
+
+**Verification test B — write-verb heuristic** (safety net for new tools):
+
+```typescript
+import { expect, test } from "bun:test";
+
+const WRITE_VERBS = ["create", "update", "delete", "remove", "set", "add", "archive", "cancel"];
+
+test("no write-verb tool marked readOnly", () => {
+  const server = createTestMcpServer();
+  const violations: string[] = [];
+
+  for (const [name, tool] of server.registeredTools) {
+    if (WRITE_VERBS.some((v) => name.includes(v)) && tool.annotations?.readOnlyHint === true)
+      violations.push(name);
+  }
+
+  expect(violations).toEqual([]);
+});
+```
+
+Ship both: the snapshot catches drift in known tools; the heuristic catches
+newly added tools that omit the flag or set it wrong.
+
 ---
 
 ## 6. Edge runtimes (Cloudflare Workers, Deno Deploy, etc.)

@@ -429,31 +429,36 @@ The package is **both** an importable npm library and a CLI tool via
 
 ## How the pieces connect
 
-**Atomic tool path:** MCP tool params → Zod-validated object → SDK call (often
-`sdkFn({ body: params })` for POST-heavy APIs) → HTTP client → upstream API.
-When generated schemas describe `{ body, path, query }`, the registrar
-**projects** the part agents should fill (often `body`) into the MCP
-`inputSchema`.
+**Atomic tool path:** MCP params → Zod-validated object → SDK call (often
+`sdkFn({ body: params })`) → HTTP client → upstream API. The registrar projects
+the agent-facing slice (often `body`) into MCP `inputSchema`.
 
-**Workflow tool path:** Hand-crafted `inputSchema` → handler calls multiple SDK
-functions via a small helper (unwrap response, normalize errors) → aggregate →
-JSON (or structured) MCP content.
+**Workflow tool path:** Hand-crafted `inputSchema` → handler calls SDK functions
+via helpers (unwrap, normalize errors) → aggregate → MCP content.
 
-**HTTP multi-tenant path:** Incoming `Request` → `buildRequestContext(req)` →
-ALS wraps `handleRequest` → on each outbound HTTP request, an interceptor reads
-ALS + `credentialResolver` → sets or strips auth on **`options.headers`** (not
-just the `Request` — required by `@hey-api/client-ky`'s two-stage pipeline).
-Empty context + `requireTenantCredentials` → **401 before MCP** (fail closed).
+**HTTP multi-tenant path:** `Request` → `buildRequestContext` → ALS wraps
+`handleRequest` → interceptor reads ALS + resolver → sets auth on
+**`options.headers`**. Empty context → **401 before MCP**.
 
-**Edge worker path (Cloudflare Workers / similar):** Module-level code is
-minimal (install credential interceptor, configure base URL). On each request,
-dynamically import the library entry → `create*McpServer()` → new stateless
-`WebStandardStreamableHTTPServerTransport` → `server.connect(transport)` → wrap
-with multi-tenant `handleRequest` → return `Response`. The dynamic `import()` is
-key: bundlers (wrangler/esbuild) wrap deferred modules in lazy `__esm`
-initializers so generated Zod schemas and tool registrations evaluate on first
-request (generous CPU budget) rather than at startup (strict CPU limit). See
+**Edge worker path:** Module-level: interceptor + base URL only. Per request:
+dynamic `import()` → `create*McpServer()` → stateless transport → multi-tenant
+`handleRequest` → `Response`. See
 [references/structure-and-flows.md § Edge runtimes](references/structure-and-flows.md#6-edge-runtimes-cloudflare-workers-deno-deploy-etc).
+
+---
+
+## Tool annotations: `readOnlyHint` safety
+
+MCP clients use `readOnlyHint` to gate user confirmation. **Defaulting to
+`true` in the registrar is a security anti-pattern** — it suppresses prompts
+for every write tool whose author omits the flag.
+**Rules:** (1) Registrar defaults `readOnly` to **`false`** when unspecified
+(matches MCP protocol default). Never `config.readOnly ?? true`. (2) When
+`httpMethod` is available (OpenAPI), infer: GET/HEAD/OPTIONS = `true`, else
+`false`; explicit `readOnly` overrides. (3) Add a **verification test** —
+snapshot map and/or write-verb heuristic on `server.registeredTools`.
+Resolution: explicit config > method inference > fail-safe `false`. For code,
+see [references/structure-and-flows.md § readOnlyHint](references/structure-and-flows.md#readonlyhint-resolution-and-verification).
 
 ---
 
@@ -470,13 +475,12 @@ request (generous CPU budget) rather than at startup (strict CPU limit). See
 - [ ] Codegen uses **`@hey-api/client-ky`** (not axios / not `@hey-api/client-axios`).
 - [ ] One atomic registrar maps **generated Zod (or types) for the tool-facing
       slice** → MCP tools.
-- [ ] Mutating tools set `readOnly: false` (or equivalent MCP annotations).
+- [ ] Registrar defaults `readOnly` to `false` when unspecified (never `?? true`); verified by test.
 - [ ] Workflows use a **separate** registrar with hand-written Zod (or validated
       input objects).
 - [ ] Library entry exports server factory + transport helpers; CLI only
       parses argv/env when you ship a binary.
-- [ ] Multi-tenant mode documented (headers, TLS, resolver hooks, 401
-      behavior).
+- [ ] Multi-tenant mode documented (headers, TLS, resolver hooks, 401 behavior).
 - [ ] Per-request auth interceptor modifies **`options.headers`** (not just the
       `Request` object) to survive `@hey-api/client-ky`'s `kyOptions` merge.
 - [ ] Optional **env-gated** debug logging for HTTP tenant/credential resolution

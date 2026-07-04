@@ -141,3 +141,4 @@ vite.config.ts.timestamp-*
 # Eval reports (generated artifacts)
 eval-reports/
 agent-skills-workspace/
+agent-skills-eval.local.yaml
